@@ -1,101 +1,134 @@
 import json
 import sqlite3
-from textblob import TextBlob
 import time
+import matplotlib.pyplot as plt
+from textblob import TextBlob
+from collections import deque
+from kafka import KafkaConsumer
 
-# Function to process a single message
+# -------------------------------------------------------
+# Configuration
+# -------------------------------------------------------
+MAX_DATA_POINTS = 10               # Number of patients shown on chart
+HIGH_RISK_THRESHOLD = -0.5         # Sentiment threshold for high-risk patients
+UPDATE_INTERVAL = 10               # ⏱ Chart update every 20 seconds
+KAFKA_TOPIC = 'patient_feedback'   # Kafka topic name
+KAFKA_SERVER = 'localhost:9092'    # Kafka broker address
+GROUP_ID = 'sentiment_group_1'     # Consumer group ID
+
+# -------------------------------------------------------
+# Deques for recent data (acts like a rolling window)
+# -------------------------------------------------------
+sentiment_data = deque(maxlen=MAX_DATA_POINTS)
+patient_ids = deque(maxlen=MAX_DATA_POINTS)
+feedback_reasons = deque(maxlen=MAX_DATA_POINTS)
+
+# -------------------------------------------------------
+# Process a single incoming message
+# -------------------------------------------------------
 def process_message(message: dict):
-    """
-    Process a single JSON message. For example, you can perform sentiment analysis 
-    or store the message in a database.
-
-    Args:
-    message (dict): The JSON message as a Python dictionary.
-    """
     patient_id = message["patient_id"]
     feedback = message["feedback"]
     timestamp = message["timestamp"]
 
-    # Example: Perform Sentiment Analysis using TextBlob
+    # Sentiment analysis
     sentiment = TextBlob(feedback).sentiment.polarity
     sentiment_label = "Positive" if sentiment > 0.1 else "Negative" if sentiment < -0.1 else "Neutral"
-    
-    # Print processed feedback (you can remove this in production)
-    print(f"Processed message for patient {patient_id}")
-    print(f"Feedback: {feedback}")
-    print(f"Sentiment: {sentiment_label}")
 
-    # Now, let's store this processed data in an SQLite database
+    # Store to DB
     store_in_db(patient_id, feedback, sentiment, sentiment_label, timestamp)
 
-# Function to store the processed message in SQLite
-def store_in_db(patient_id: str, feedback: str, sentiment: float, sentiment_label: str, timestamp: str):
-    """
-    Store processed feedback in an SQLite database.
-    """
-    db_path = "patient_feedback.db"  # Path to your SQLite DB file
-    
-    # Connect to the SQLite database
-    conn = sqlite3.connect(db_path)
+    # Identify high-risk cases
+    if sentiment < HIGH_RISK_THRESHOLD:
+        reason = identify_risk_reason(feedback)
+        print(f"⚠️  Patient {patient_id} is HIGH RISK → {reason}")
+        feedback_reasons.append(reason)
+    else:
+        feedback_reasons.append("Normal")
+
+    # Update visualization
+    update_chart(sentiment, patient_id)
+
+    # Console log
+    print(f"Processed: {patient_id} | {feedback} | Sentiment: {sentiment_label}")
+
+# -------------------------------------------------------
+# Save processed data to SQLite
+# -------------------------------------------------------
+def store_in_db(patient_id, feedback, sentiment, sentiment_label, timestamp):
+    conn = sqlite3.connect("patient_feedback.db")
     cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS feedback (
+        patient_id TEXT,
+        feedback TEXT,
+        sentiment REAL,
+        sentiment_label TEXT,
+        timestamp TEXT
+    )''')
+    cursor.execute('INSERT INTO feedback VALUES (?, ?, ?, ?, ?)',
+                   (patient_id, feedback, sentiment, sentiment_label, timestamp))
+    conn.commit()
+    conn.close()
 
-    # Create the table if it does not exist
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS feedback (
-            patient_id TEXT,
-            feedback TEXT,
-            sentiment REAL,
-            sentiment_label TEXT,
-            timestamp TEXT
-        )
-    ''')
+# -------------------------------------------------------
+# Identify risk reason from keywords
+# -------------------------------------------------------
+def identify_risk_reason(feedback: str):
+    fb = feedback.lower()
+    if any(word in fb for word in ["pain", "worst", "terrible"]):
+        return "Severe Pain"
+    if any(word in fb for word in ["no improvement", "not better"]):
+        return "No Improvement"
+    if any(word in fb for word in ["still feel awful", "nothing works"]):
+        return "Ineffective Treatment"
+    return "General Risk"
 
-    # Insert the processed message data into the database
-    cursor.execute('''
-        INSERT INTO feedback (patient_id, feedback, sentiment, sentiment_label, timestamp)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (patient_id, feedback, sentiment, sentiment_label, timestamp))
-    
-    conn.commit()  # Commit the transaction
-    conn.close()   # Close the connection
-    print(f"Stored message for patient {patient_id} into database.")
+# -------------------------------------------------------
+# Real-time chart update
+# -------------------------------------------------------
+def update_chart(sentiment, patient_id):
+    sentiment_data.append(sentiment)
+    patient_ids.append(patient_id)
 
-# Main consumer logic to read messages from the file
-def consume_messages_from_file(file_path: str):
-    """
-    Reads messages from a dynamic file (patient_feedback.jsonl) and processes each one.
-    """
-    print(f"Starting to consume messages from {file_path}")
-    while True:
+    plt.clf()
+    plt.plot(patient_ids, sentiment_data, label="Sentiment Trend", color="blue")
+    plt.scatter(patient_ids, sentiment_data,
+                color=["red" if s < HIGH_RISK_THRESHOLD else "blue" for s in sentiment_data],
+                zorder=5)
+    plt.xlabel("Patient ID")
+    plt.ylabel("Sentiment Polarity")
+    plt.title("Real-Time Patient Feedback Sentiment")
+    plt.xticks(rotation=45, ha="right")
+    plt.legend()
+    plt.tight_layout()
+    plt.pause(0.1)  # allow the chart to refresh
+
+# -------------------------------------------------------
+# Consume messages from Kafka
+# -------------------------------------------------------
+def consume_messages_from_kafka():
+    consumer = KafkaConsumer(
+        KAFKA_TOPIC,
+        bootstrap_servers=KAFKA_SERVER,
+        value_deserializer=lambda x: json.loads(x.decode("utf-8")),
+        auto_offset_reset="latest",      # ✅ Start from newest messages only
+        enable_auto_commit=True,
+        group_id=GROUP_ID
+    )
+
+    plt.ion()
+    plt.figure(figsize=(10, 6))
+    print("✅ Consumer started — waiting for new messages...")
+
+    for msg in consumer:
         try:
-            # Open the file in append mode to keep reading new lines
-            with open(file_path, "r") as file:
-                # Read the file line by line
-                lines = file.readlines()
-                for line in lines:
-                    try:
-                        # Parse the JSON line to a dictionary
-                        message = json.loads(line.strip())
-                        print(f"Processing message: {message}")
-                        
-                        # Call the function to process and store the message
-                        process_message(message)
-                    except json.JSONDecodeError as e:
-                        print(f"Error decoding JSON: {e}")
-                    except Exception as e:
-                        print(f"Error processing message: {e}")
-            
-            # Sleep for a few seconds to avoid constant polling of the file
-            print("Waiting for new messages...")
-            time.sleep(5)  # Adjust the sleep time as per your requirements
-        
+            process_message(msg.value)
+            time.sleep(UPDATE_INTERVAL)  # ⏱ chart updates every 20 seconds
         except Exception as e:
-            print(f"Error reading the file: {e}")
-            time.sleep(5)  # Sleep before retrying if an error occurs
+            print(f"Error processing message: {e}")
 
+# -------------------------------------------------------
+# Run
+# -------------------------------------------------------
 if __name__ == "__main__":
-    # Path to the dynamic file (patient_feedback.jsonl)
-    file_path = "data/patient_feedback.jsonl"
-    
-    # Call the consumer function to start reading and processing messages
-    consume_messages_from_file(file_path)
+    consume_messages_from_kafka()

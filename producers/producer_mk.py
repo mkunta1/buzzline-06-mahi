@@ -2,9 +2,11 @@ import json
 import random
 import time
 from datetime import datetime
+from kafka import KafkaProducer
 
-# Path to save the dynamic file
-FILE_PATH = 'data/patient_feedback.jsonl'
+# Kafka configuration
+KAFKA_SERVER = 'localhost:9092'  # Replace with your Kafka server address
+TOPIC_NAME = 'patient_feedback'  # Kafka topic name where messages will be sent
 
 # Sample feedback messages to simulate real-time patient feedback
 feedback_list = [
@@ -27,13 +29,27 @@ def generate_data():
         "feedback": feedback,
         "timestamp": timestamp
     }
-    
-    # Write the message to the dynamic file
-    with open(FILE_PATH, 'a') as f:
-        f.write(json.dumps(message) + "\n")
-    print(f"Data written: {message}")
+    return message
 
-# Simulate writing data to the file every 10 seconds
-while True:
-    generate_data()
-    time.sleep(10)
+# Function to send data to Kafka
+def send_to_kafka(producer, message):
+    # Send the message to Kafka topic
+    producer.send(TOPIC_NAME, value=message)
+    producer.flush()  # Ensure message is sent
+    print(f"Sent message: {message}")
+
+# Main function to generate and send data to Kafka
+def main():
+    # Initialize Kafka producer
+    producer = KafkaProducer(
+        bootstrap_servers=KAFKA_SERVER,
+        value_serializer=lambda v: json.dumps(v).encode('utf-8')  # Serialize JSON
+    )
+    
+    while True:
+        message = generate_data()  # Generate mock data
+        send_to_kafka(producer, message)  # Send the data to Kafka
+        time.sleep(15)  # Simulate a 30-second interval between data generation
+
+if __name__ == "__main__":
+    main()
