@@ -351,3 +351,14 @@ See the [LICENSE](LICENSE.txt) file for more.
 ## Producer Generate Feedback messages
 {"patient_id": "12345", "feedback": "The treatment was great!", "timestamp": "2025-10-04 02:00:00"}
 {"patient_id": "67890", "feedback": "I still have some pain.", "timestamp": "2025-10-04 02:05:00"}
+
+
+## Features / Functionality
+
+Our custom Kafka consumer performs the following tasks:
+
+- **Read incoming messages:** Each JSON message contains patient ID, feedback, and timestamp.  
+- **Sentiment analysis:** Processes feedback using TextBlob, classifying messages as Positive, Neutral, or Negative.  
+- **Database storage:** Stores processed data in a SQLite database for historical analysis.  
+- **Rolling window visualization:** Maintains a rolling window of recent messages to plot a real-time sentiment chart.  
+- **High-risk detection:** Highlights high-risk patients on the chart based on a sentiment threshold (e.g., polarity < -0.5) and identifies the reason using keyword analysis.
