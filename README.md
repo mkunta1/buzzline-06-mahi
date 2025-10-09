@@ -362,3 +362,69 @@ Our custom Kafka consumer performs the following tasks:
 - **Database storage:** Stores processed data in a SQLite database for historical analysis.  
 - **Rolling window visualization:** Maintains a rolling window of recent messages to plot a real-time sentiment chart.  
 - **High-risk detection:** Highlights high-risk patients on the chart based on a sentiment threshold (e.g., polarity < -0.5) and identifies the reason using keyword analysis.
+
+# Dynamic Sentiment Analysis Chart
+
+## Overview
+
+In this project, a **dynamic sentiment analysis chart** is used to visualize real-time patient feedback based on sentiment polarity. The chart updates continuously as new feedback messages are consumed from the Kafka stream. The sentiment of each feedback message is classified into **Positive**, **Neutral**, or **Negative** using **TextBlob** sentiment analysis. The chart displays sentiment trends over time and highlights **high-risk feedback** for immediate attention.
+
+## Key Features
+
+- **Real-time Updates**: The chart updates every 20 seconds to reflect the latest feedback and sentiment scores. New feedback messages are processed and visualized immediately.
+  
+- **Rolling Window**: A **rolling window** of the last 10 data points (latest feedback) is maintained on the chart. The window size is adjustable based on the **MAX_DATA_POINTS** parameter.
+
+- **Sentiment Polarity**: The **sentiment polarity** (from -1 to 1) is used to categorize feedback as:
+  - **Positive** (polarity > 0.1)  
+  - **Neutral** (polarity between -0.1 and 0.1)  
+  - **Negative** (polarity < -0.1)
+
+- **High-Risk Detection**: Feedback that indicates high-risk situations (e.g., severe pain or no improvement) is flagged. These **high-risk feedbacks** are marked on the chart in **red** for easy identification. High-risk patients are identified if their sentiment score is below a threshold of **-0.5**.
+
+## Chart Visualization
+
+The chart plots **patient IDs** against **sentiment polarity** scores. Sentiment values are updated as new feedback arrives, and high-risk cases are highlighted. This helps healthcare providers easily track patient sentiment in real time and focus on those with the most urgent needs.
+
+- **Blue Line**: Represents the overall sentiment trend.
+- **Red Dots**: Indicate **high-risk feedback** (sentiment below the threshold of -0.5).
+  
+### Example Chart
+
+Here’s an example of how the chart would look once it starts receiving feedback messages:
+
+**[Example Dynamic Sentiment Chart]**  
+_(Include a screenshot or image of the chart if available, like below)_
+
+![Dynamic Sentiment Chart](images/sentiment_chart_example.png)
+
+#### Chart Breakdown:
+- **X-axis**: Represents **Patient ID** (new feedback is appended as it arrives).
+- **Y-axis**: Represents **Sentiment Polarity** (from -1 to 1).
+- **Blue Line**: Shows the trend of sentiment polarity over time.
+- **Red Dots**: Represent **high-risk feedback**.
+
+## How It Works
+
+1. **Kafka Consumer**: The Kafka consumer reads messages from the `patient_feedback` topic. Each message contains feedback data (patient ID, feedback text, timestamp).
+  
+2. **Sentiment Analysis**: The feedback text is processed using **TextBlob** to calculate a **polarity score**. Based on the score, the feedback is categorized into **Positive**, **Neutral**, or **Negative**.
+
+3. **Database Storage**: Each processed message (along with its sentiment and timestamp) is stored in a **SQLite database** for historical reference.
+
+4. **Real-time Chart Update**: Every time a new message is processed:
+   - The chart is updated with the sentiment value.
+   - **High-risk feedback** is highlighted in **red**.
+   - The chart is updated every **10 seconds**, as specified by the `UPDATE_INTERVAL` parameter.
+
+5. **High-Risk Detection**: If a message’s sentiment is below **-0.5**, the feedback is flagged as high-risk and logged.
+
+## How to Interact with the Dynamic Chart
+
+To view the **dynamic chart** 
+
+1. **Start the Kafka Consumer**:
+   - Ensure your Kafka broker is running and consuming messages from the `patient_feedback` topic.
+   - Run the script to start the Kafka consumer.
+
+
